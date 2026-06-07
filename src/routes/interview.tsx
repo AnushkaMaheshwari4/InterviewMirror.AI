@@ -27,7 +27,7 @@ import {
 import { useFaceMesh } from "@/hooks/use-face-mesh";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { generateQuestions, scoreInterview } from "@/lib/interview.functions";
-import { countFillers, countWords, wpm } from "@/lib/interview-utils";
+import { countFillers, countWords, dedupeTranscript, wpm } from "@/lib/interview-utils";
 
 export const Route = createFileRoute("/interview")({
   head: () => ({
