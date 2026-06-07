@@ -5,7 +5,7 @@ type SRConstructor = new () => {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string; isFinal?: boolean }> & { isFinal: boolean }> }) => void) | null;
+  onresult: ((e: unknown) => void) | null;
   onerror: ((e: unknown) => void) | null;
   onend: (() => void) | null;
   start: () => void;
@@ -40,13 +40,20 @@ export function useSpeechRecognition() {
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = "en-US";
-    rec.onresult = (e) => {
+    rec.onresult = (e: unknown) => {
+      // Start at resultIndex so we never re-append a final result we've
+      // already consumed (event.results is cumulative across events when
+      // continuous=true, which would otherwise duplicate the transcript).
+      const evt = e as {
+        resultIndex: number;
+        results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }>;
+      };
       let interimStr = "";
-      for (let i = 0; i < e.results.length; i++) {
-        const res = e.results[i] as ArrayLike<{ transcript: string }> & { isFinal: boolean };
+      for (let i = evt.resultIndex; i < evt.results.length; i++) {
+        const res = evt.results[i];
         const t = res[0].transcript;
         if (res.isFinal) {
-          finalRef.current += t + " ";
+          finalRef.current += t.trim() + " ";
         } else {
           interimStr += t;
         }

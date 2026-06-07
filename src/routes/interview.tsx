@@ -27,7 +27,7 @@ import {
 import { useFaceMesh } from "@/hooks/use-face-mesh";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { generateQuestions, scoreInterview } from "@/lib/interview.functions";
-import { countFillers, countWords, wpm } from "@/lib/interview-utils";
+import { countFillers, countWords, dedupeTranscript, wpm } from "@/lib/interview-utils";
 
 export const Route = createFileRoute("/interview")({
   head: () => ({
@@ -141,8 +141,9 @@ function InterviewPage() {
     return () => window.clearInterval(id);
   }, [phase]);
 
-  const liveWords = useMemo(() => countWords(speech.transcript), [speech.transcript]);
-  const liveFillers = useMemo(() => countFillers(speech.transcript), [speech.transcript]);
+  const liveClean = useMemo(() => dedupeTranscript(speech.transcript), [speech.transcript]);
+  const liveWords = useMemo(() => countWords(liveClean), [liveClean]);
+  const liveFillers = useMemo(() => countFillers(liveClean), [liveClean]);
   const liveWpm = useMemo(() => wpm(liveWords, elapsed), [liveWords, elapsed]);
 
   const begin = useCallback(async () => {
@@ -174,16 +175,19 @@ function InterviewPage() {
   const finishAnswer = useCallback(() => {
     const duration = startTsRef.current ? (performance.now() - startTsRef.current) / 1000 : 0;
     speech.stop();
-    const transcript = speech.transcript;
+    const transcript = dedupeTranscript(speech.transcript);
     const words = countWords(transcript);
     const fillers = countFillers(transcript);
+    const computedWpm = wpm(words, duration);
     const record: AnswerRecord = {
       question: questions[qIndex],
       transcript,
       durationSec: duration,
       wordCount: words,
       fillerCount: fillers,
-      wordsPerMinute: wpm(words, duration),
+      // Cap at a physiologically plausible upper bound to guard against
+      // any residual duplication; humans top out around ~300 wpm.
+      wordsPerMinute: Math.min(computedWpm, 300),
       eyeContactPct: face.eyeContactPct,
     };
     const next = [...answers, record];
