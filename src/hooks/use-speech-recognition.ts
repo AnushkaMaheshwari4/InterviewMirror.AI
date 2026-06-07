@@ -23,7 +23,7 @@ export function useSpeechRecognition() {
   const [transcript, setTranscript] = useState("");
   const [interim, setInterim] = useState("");
   const [listening, setListening] = useState(false);
-  const recRef = useRef<ReturnType<SRConstructor> | null>(null);
+  const recRef = useRef<InstanceType<SRConstructor> | null>(null);
   const finalRef = useRef("");
 
   useEffect(() => {
