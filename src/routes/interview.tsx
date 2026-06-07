@@ -141,8 +141,9 @@ function InterviewPage() {
     return () => window.clearInterval(id);
   }, [phase]);
 
-  const liveWords = useMemo(() => countWords(speech.transcript), [speech.transcript]);
-  const liveFillers = useMemo(() => countFillers(speech.transcript), [speech.transcript]);
+  const liveClean = useMemo(() => dedupeTranscript(speech.transcript), [speech.transcript]);
+  const liveWords = useMemo(() => countWords(liveClean), [liveClean]);
+  const liveFillers = useMemo(() => countFillers(liveClean), [liveClean]);
   const liveWpm = useMemo(() => wpm(liveWords, elapsed), [liveWords, elapsed]);
 
   const begin = useCallback(async () => {
