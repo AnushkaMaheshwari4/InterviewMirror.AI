@@ -175,16 +175,19 @@ function InterviewPage() {
   const finishAnswer = useCallback(() => {
     const duration = startTsRef.current ? (performance.now() - startTsRef.current) / 1000 : 0;
     speech.stop();
-    const transcript = speech.transcript;
+    const transcript = dedupeTranscript(speech.transcript);
     const words = countWords(transcript);
     const fillers = countFillers(transcript);
+    const computedWpm = wpm(words, duration);
     const record: AnswerRecord = {
       question: questions[qIndex],
       transcript,
       durationSec: duration,
       wordCount: words,
       fillerCount: fillers,
-      wordsPerMinute: wpm(words, duration),
+      // Cap at a physiologically plausible upper bound to guard against
+      // any residual duplication; humans top out around ~300 wpm.
+      wordsPerMinute: Math.min(computedWpm, 300),
       eyeContactPct: face.eyeContactPct,
     };
     const next = [...answers, record];
