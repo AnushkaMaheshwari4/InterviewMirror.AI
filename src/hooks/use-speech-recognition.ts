@@ -5,7 +5,7 @@ type SRConstructor = new () => {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string; isFinal?: boolean }> & { isFinal: boolean }> }) => void) | null;
+  onresult: ((e: unknown) => void) | null;
   onerror: ((e: unknown) => void) | null;
   onend: (() => void) | null;
   start: () => void;
