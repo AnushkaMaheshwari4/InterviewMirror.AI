@@ -141,7 +141,13 @@ function InterviewPage() {
     return () => window.clearInterval(id);
   }, [phase]);
 
-  const liveClean = useMemo(() => dedupeTranscript(speech.transcript), [speech.transcript]);
+  // Combine finalized + interim transcript so word count, WPM, and filler
+  // detection update in real time as the user speaks. dedupeTranscript guards
+  // against any overlap between the finalized buffer and the interim segment.
+  const liveClean = useMemo(
+    () => dedupeTranscript([speech.transcript, speech.interim].filter(Boolean).join(" ").trim()),
+    [speech.transcript, speech.interim],
+  );
   const liveWords = useMemo(() => countWords(liveClean), [liveClean]);
   const liveFillers = useMemo(() => countFillers(liveClean), [liveClean]);
   const liveDetectedFillers = useMemo(() => detectFillers(liveClean), [liveClean]);
