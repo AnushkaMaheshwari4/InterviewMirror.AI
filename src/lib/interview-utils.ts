@@ -14,7 +14,7 @@ export const FILLER_WORDS = [
 ];
 
 export function countFillers(text: string): number {
-  if (!text) return [];
+  if (!text) return 0;
   const lower = " " + text.toLowerCase().replace(/[.,!?;:]/g, " ") + " ";
   let count = 0;
   for (const f of FILLER_WORDS) {
