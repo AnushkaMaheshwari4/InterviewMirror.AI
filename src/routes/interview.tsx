@@ -448,6 +448,33 @@ function InterviewPage() {
             </div>
           </div>
 
+          <div className="glass rounded-2xl p-6 shadow-card">
+            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-warning">
+              Temporary metric debug
+            </h3>
+            <div className="space-y-2 text-xs font-mono leading-relaxed text-muted-foreground">
+              <DebugRow label="Raw transcript" value={speech.transcript || "(empty)"} />
+              <DebugRow label="Interim transcript" value={speech.interim || "(empty)"} />
+              <DebugRow label="Unique transcript" value={liveClean || "(empty)"} />
+              <DebugRow label="Word count calculation" value={`countWords(uniqueTranscript) = ${liveWords}`} />
+              <DebugRow label="WPM calculation" value={`${liveWords} words / ${elapsed.toFixed(2)} sec * 60 = ${liveWpm.toFixed(2)} wpm`} />
+              <DebugRow
+                label="Detected filler words"
+                value={liveDetectedFillers.length ? liveDetectedFillers.join(", ") : "(none)"}
+              />
+              <DebugRow
+                label="Current eye-contact frame"
+                value={
+                  face.debug.hasFace
+                    ? `${face.debug.engaged ? "engaged" : "not engaged"} · horiz ${formatDebugNumber(face.debug.horiz)} (${face.debug.horizOk ? "ok" : "fail"}) · vert ${formatDebugNumber(face.debug.vert)} (${face.debug.vertOk ? "ok" : "fail"}) · yaw ${formatDebugNumber(face.debug.yawOffset)} (${face.debug.yawOk ? "ok" : "fail"})`
+                    : "no face detected"
+                }
+              />
+              <DebugRow label="Total frames" value={String(face.debug.totalFrames)} />
+              <DebugRow label="Engaged frames" value={String(face.debug.engagedFrames)} />
+            </div>
+          </div>
+
           {answers.length > 0 && (
             <div className="glass rounded-2xl p-6 shadow-card">
               <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
