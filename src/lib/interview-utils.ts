@@ -14,15 +14,22 @@ export const FILLER_WORDS = [
 ];
 
 export function countFillers(text: string): number {
-  if (!text) return 0;
-  const lower = " " + text.toLowerCase().replace(/[.,!?;:]/g, " ") + " ";
-  let count = 0;
+  return detectFillers(text).length;
+}
+
+export function detectFillers(text: string): string[] {
+  if (!text) return [];
+  const normalized = text.toLowerCase().replace(/[^a-z'\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+  const found: string[] = [];
   for (const f of FILLER_WORDS) {
-    const re = new RegExp(`\\s${f.replace(/ /g, "\\s")}\\s`, "g");
-    const matches = lower.match(re);
-    if (matches) count += matches.length;
+    const re = new RegExp(`(^|\\s)${f.replace(/ /g, "\\s+")}(?=\\s|$)`, "g");
+    const matches = normalized.match(re);
+    if (matches) {
+      for (let i = 0; i < matches.length; i++) found.push(f);
+    }
   }
-  return count;
+  return found;
 }
 
 export function countWords(text: string): number {
