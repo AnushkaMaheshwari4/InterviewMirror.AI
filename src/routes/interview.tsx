@@ -27,7 +27,7 @@ import {
 import { useFaceMesh } from "@/hooks/use-face-mesh";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { generateQuestions, scoreInterview } from "@/lib/interview.functions";
-import { countFillers, countWords, dedupeTranscript, wpm } from "@/lib/interview-utils";
+import { countFillers, countWords, dedupeTranscript, detectFillers, wpm } from "@/lib/interview-utils";
 
 export const Route = createFileRoute("/interview")({
   head: () => ({
@@ -144,6 +144,7 @@ function InterviewPage() {
   const liveClean = useMemo(() => dedupeTranscript(speech.transcript), [speech.transcript]);
   const liveWords = useMemo(() => countWords(liveClean), [liveClean]);
   const liveFillers = useMemo(() => countFillers(liveClean), [liveClean]);
+  const liveDetectedFillers = useMemo(() => detectFillers(liveClean), [liveClean]);
   const liveWpm = useMemo(() => wpm(liveWords, elapsed), [liveWords, elapsed]);
 
   const begin = useCallback(async () => {
