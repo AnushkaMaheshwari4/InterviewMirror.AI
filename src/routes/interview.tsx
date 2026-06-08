@@ -498,6 +498,19 @@ function InterviewPage() {
   );
 }
 
+function formatDebugNumber(value: number | null): string {
+  return value == null ? "n/a" : value.toFixed(3);
+}
+
+function DebugRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 rounded-lg border border-border/40 bg-background/40 p-2 sm:grid-cols-[11rem_1fr]">
+      <span className="text-foreground">{label}</span>
+      <span className="break-words">{value}</span>
+    </div>
+  );
+}
+
 function Metric({
   icon,
   label,
