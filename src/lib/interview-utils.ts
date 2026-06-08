@@ -25,6 +25,18 @@ export function countFillers(text: string): number {
   return count;
 }
 
+export function detectFillers(text: string): string[] {
+  if (!text) return [];
+  const lower = " " + text.toLowerCase().replace(/[.,!?;:]/g, " ") + " ";
+  const found: string[] = [];
+  for (const f of FILLER_WORDS) {
+    const re = new RegExp(`\\s${f.replace(/ /g, "\\s")}\\s`, "g");
+    const matches = lower.match(re);
+    if (matches) matches.forEach(() => found.push(f));
+  }
+  return found;
+}
+
 export function countWords(text: string): number {
   if (!text) return 0;
   return text.trim().split(/\s+/).filter(Boolean).length;

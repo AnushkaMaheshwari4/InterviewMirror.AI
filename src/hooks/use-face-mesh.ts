@@ -13,9 +13,36 @@ type Landmarker = {
   close: () => void;
 };
 
+export type EyeContactDebug = {
+  hasFace: boolean;
+  engaged: boolean;
+  totalFrames: number;
+  engagedFrames: number;
+  horiz: number | null;
+  vert: number | null;
+  yawOffset: number | null;
+  horizOk: boolean;
+  vertOk: boolean;
+  yawOk: boolean;
+};
+
+const emptyDebug: EyeContactDebug = {
+  hasFace: false,
+  engaged: false,
+  totalFrames: 0,
+  engagedFrames: 0,
+  horiz: null,
+  vert: null,
+  yawOffset: null,
+  horizOk: false,
+  vertOk: false,
+  yawOk: false,
+};
+
 export function useFaceMesh(videoRef: React.RefObject<HTMLVideoElement | null>, active: boolean) {
   const [supported, setSupported] = useState<boolean | null>(null);
   const [eyeContactPct, setEyeContactPct] = useState<number | null>(null);
+  const [debug, setDebug] = useState<EyeContactDebug>(emptyDebug);
   const landmarkerRef = useRef<Landmarker | null>(null);
   const rafRef = useRef<number | null>(null);
   const samplesRef = useRef<{ total: number; engaged: number }>({ total: 0, engaged: 0 });
@@ -112,11 +139,28 @@ export function useFaceMesh(videoRef: React.RefObject<HTMLVideoElement | null>, 
         if (engaged) samplesRef.current.engaged += 1;
         const pct = (samplesRef.current.engaged / samplesRef.current.total) * 100;
         setEyeContactPct(pct);
+        setDebug({
+          hasFace: true,
+          engaged,
+          totalFrames: samplesRef.current.total,
+          engagedFrames: samplesRef.current.engaged,
+          horiz,
+          vert,
+          yawOffset,
+          horizOk,
+          vertOk,
+          yawOk,
+        });
       } else {
         // No face detected this frame — count as not engaged.
         samplesRef.current.total += 1;
         const pct = (samplesRef.current.engaged / samplesRef.current.total) * 100;
         setEyeContactPct(pct);
+        setDebug({
+          ...emptyDebug,
+          totalFrames: samplesRef.current.total,
+          engagedFrames: samplesRef.current.engaged,
+        });
       }
     } catch {
       /* ignore per-frame errors */
@@ -128,6 +172,7 @@ export function useFaceMesh(videoRef: React.RefObject<HTMLVideoElement | null>, 
     if (!active || supported !== true) return;
     samplesRef.current = { total: 0, engaged: 0 };
     setEyeContactPct(null);
+    setDebug(emptyDebug);
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -138,7 +183,8 @@ export function useFaceMesh(videoRef: React.RefObject<HTMLVideoElement | null>, 
   const reset = useCallback(() => {
     samplesRef.current = { total: 0, engaged: 0 };
     setEyeContactPct(null);
+    setDebug(emptyDebug);
   }, []);
 
-  return { supported, eyeContactPct, reset };
+  return { supported, eyeContactPct, debug, reset };
 }

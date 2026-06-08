@@ -27,7 +27,7 @@ import {
 import { useFaceMesh } from "@/hooks/use-face-mesh";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { generateQuestions, scoreInterview } from "@/lib/interview.functions";
-import { countFillers, countWords, dedupeTranscript, wpm } from "@/lib/interview-utils";
+import { countFillers, countWords, dedupeTranscript, detectFillers, wpm } from "@/lib/interview-utils";
 
 export const Route = createFileRoute("/interview")({
   head: () => ({
@@ -144,6 +144,7 @@ function InterviewPage() {
   const liveClean = useMemo(() => dedupeTranscript(speech.transcript), [speech.transcript]);
   const liveWords = useMemo(() => countWords(liveClean), [liveClean]);
   const liveFillers = useMemo(() => countFillers(liveClean), [liveClean]);
+  const liveDetectedFillers = useMemo(() => detectFillers(liveClean), [liveClean]);
   const liveWpm = useMemo(() => wpm(liveWords, elapsed), [liveWords, elapsed]);
 
   const begin = useCallback(async () => {
@@ -447,6 +448,33 @@ function InterviewPage() {
             </div>
           </div>
 
+          <div className="glass rounded-2xl p-6 shadow-card">
+            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-warning">
+              Temporary metric debug
+            </h3>
+            <div className="space-y-2 text-xs font-mono leading-relaxed text-muted-foreground">
+              <DebugRow label="Raw transcript" value={speech.transcript || "(empty)"} />
+              <DebugRow label="Interim transcript" value={speech.interim || "(empty)"} />
+              <DebugRow label="Unique transcript" value={liveClean || "(empty)"} />
+              <DebugRow label="Word count calculation" value={`countWords(uniqueTranscript) = ${liveWords}`} />
+              <DebugRow label="WPM calculation" value={`${liveWords} words / ${elapsed.toFixed(2)} sec * 60 = ${liveWpm.toFixed(2)} wpm`} />
+              <DebugRow
+                label="Detected filler words"
+                value={liveDetectedFillers.length ? liveDetectedFillers.join(", ") : "(none)"}
+              />
+              <DebugRow
+                label="Current eye-contact frame"
+                value={
+                  face.debug.hasFace
+                    ? `${face.debug.engaged ? "engaged" : "not engaged"} · horiz ${formatDebugNumber(face.debug.horiz)} (${face.debug.horizOk ? "ok" : "fail"}) · vert ${formatDebugNumber(face.debug.vert)} (${face.debug.vertOk ? "ok" : "fail"}) · yaw ${formatDebugNumber(face.debug.yawOffset)} (${face.debug.yawOk ? "ok" : "fail"})`
+                    : "no face detected"
+                }
+              />
+              <DebugRow label="Total frames" value={String(face.debug.totalFrames)} />
+              <DebugRow label="Engaged frames" value={String(face.debug.engagedFrames)} />
+            </div>
+          </div>
+
           {answers.length > 0 && (
             <div className="glass rounded-2xl p-6 shadow-card">
               <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
@@ -466,6 +494,19 @@ function InterviewPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function formatDebugNumber(value: number | null): string {
+  return value == null ? "n/a" : value.toFixed(3);
+}
+
+function DebugRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 rounded-lg border border-border/40 bg-background/40 p-2 sm:grid-cols-[11rem_1fr]">
+      <span className="text-foreground">{label}</span>
+      <span className="break-words">{value}</span>
     </div>
   );
 }
