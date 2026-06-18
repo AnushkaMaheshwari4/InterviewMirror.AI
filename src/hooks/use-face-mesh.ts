@@ -130,9 +130,9 @@ export function useFaceMesh(videoRef: React.RefObject<HTMLVideoElement | null>, 
         const eyeMidX = (lOut.x + rOut.x) / 2;
         const yawOffset = Math.abs(nose.x - eyeMidX);
 
-        const horizOk = Math.abs(horiz - 0.5) < 0.15;
-        const vertOk = vert > 0.25 && vert < 0.7; // not looking down/up
-        const yawOk = yawOffset < 0.03;
+        const horizOk = Math.abs(horiz - 0.5) < 0.09;
+        const vertOk = vert > 0.3 && vert < 0.62;
+        const yawOk = yawOffset < 0.025;
         const engaged = horizOk && vertOk && yawOk;
 
         samplesRef.current.total += 1;

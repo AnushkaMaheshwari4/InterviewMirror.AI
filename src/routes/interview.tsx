@@ -7,10 +7,15 @@ import {
   Eye,
   Gauge,
   Loader2,
+  Maximize2,
   Mic,
   MicOff,
+  Minimize2,
+  PictureInPicture2,
+  RotateCcw,
   Sparkles,
   StopCircle,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -27,7 +32,7 @@ import {
 import { useFaceMesh } from "@/hooks/use-face-mesh";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { generateQuestions, scoreInterview } from "@/lib/interview.functions";
-import { countFillers, countWords, dedupeTranscript, detectFillers, wpm } from "@/lib/interview-utils";
+import { countFillers, countWords, dedupeTranscript, wpm } from "@/lib/interview-utils";
 
 export const Route = createFileRoute("/interview")({
   head: () => ({
@@ -53,6 +58,33 @@ type AnswerRecord = {
 
 type Phase = "setup" | "ready" | "answering" | "review" | "scoring";
 
+type PersistedSession = {
+  role: string;
+  category: Category;
+  count: number;
+  phase: Phase;
+  questions: string[];
+  qIndex: number;
+  answers: AnswerRecord[];
+};
+
+type CamMode = "docked" | "minimized" | "pip" | "expanded";
+
+const ACTIVE_KEY = "im_active_session";
+
+function loadActiveSession(): PersistedSession | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as PersistedSession;
+    if (!p || !p.phase || p.phase === "setup" || p.phase === "scoring") return null;
+    if (!Array.isArray(p.questions) || p.questions.length === 0) return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+
 function InterviewPage() {
   const navigate = useNavigate();
   const genFn = useServerFn(generateQuestions);
@@ -70,6 +102,7 @@ function InterviewPage() {
   const [answers, setAnswers] = useState<AnswerRecord[]>([]);
   const [loadingMsg, setLoadingMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [restorePrompt, setRestorePrompt] = useState<PersistedSession | null>(null);
 
   // Media
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -77,6 +110,7 @@ function InterviewPage() {
   const [camOn, setCamOn] = useState(false);
   const [micOn, setMicOn] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const [camMode, setCamMode] = useState<CamMode>("docked");
 
   // Live metrics
   const startTsRef = useRef<number | null>(null);
@@ -84,9 +118,30 @@ function InterviewPage() {
   const speech = useSpeechRecognition();
   const face = useFaceMesh(videoRef, camOn);
 
-  // Acquire camera/mic when leaving setup
+  // Detect a restorable session once on mount
   useEffect(() => {
-    if (phase === "setup") return;
+    const saved = loadActiveSession();
+    if (saved) setRestorePrompt(saved);
+  }, []);
+
+  // Persist active session so a refresh doesn't lose progress
+  useEffect(() => {
+    if (phase === "setup" || phase === "scoring") return;
+    try {
+      const data: PersistedSession = { role, category, count, phase, questions, qIndex, answers };
+      localStorage.setItem(ACTIVE_KEY, JSON.stringify(data));
+    } catch {
+      /* ignore */
+    }
+  }, [role, category, count, phase, questions, qIndex, answers]);
+
+  // Acquire camera/mic when leaving setup. Stable dep: a boolean derived inline
+  // would still work, but using `phase` directly is clearer and avoids the
+  // appearance of an unstable dep array.
+  const inSession = phase !== "setup";
+  useEffect(() => {
+    if (!inSession) return;
+    if (streamRef.current) return; // already acquired
     let cancelled = false;
     (async () => {
       try {
@@ -109,18 +164,22 @@ function InterviewPage() {
       } catch (err) {
         console.error(err);
         setMediaError(
-          err instanceof Error
-            ? err.message
-            : "Camera/microphone access was denied.",
+          err instanceof Error ? err.message : "Camera/microphone access was denied.",
         );
       }
     })();
     return () => {
       cancelled = true;
     };
-    // we intentionally re-acquire only on first move out of setup
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase !== "setup"]);
+  }, [inSession]);
+
+  // Re-attach stream to <video> when the element re-mounts (e.g. mode change)
+  useEffect(() => {
+    if (videoRef.current && streamRef.current && videoRef.current.srcObject !== streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      void videoRef.current.play().catch(() => {});
+    }
+  }, [camMode, phase]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -141,17 +200,31 @@ function InterviewPage() {
     return () => window.clearInterval(id);
   }, [phase]);
 
-  // Combine finalized + interim transcript so word count, WPM, and filler
-  // detection update in real time as the user speaks. dedupeTranscript guards
-  // against any overlap between the finalized buffer and the interim segment.
+  // Combine finalized + interim transcript for live metrics
   const liveClean = useMemo(
     () => dedupeTranscript([speech.transcript, speech.interim].filter(Boolean).join(" ").trim()),
     [speech.transcript, speech.interim],
   );
   const liveWords = useMemo(() => countWords(liveClean), [liveClean]);
   const liveFillers = useMemo(() => countFillers(liveClean), [liveClean]);
-  const liveDetectedFillers = useMemo(() => detectFillers(liveClean), [liveClean]);
   const liveWpm = useMemo(() => wpm(liveWords, elapsed), [liveWords, elapsed]);
+
+  const restoreSession = useCallback(() => {
+    if (!restorePrompt) return;
+    setRole(restorePrompt.role);
+    setCategory(restorePrompt.category);
+    setCount(restorePrompt.count);
+    setQuestions(restorePrompt.questions);
+    setQIndex(restorePrompt.qIndex);
+    setAnswers(restorePrompt.answers);
+    setPhase(restorePrompt.phase === "answering" ? "ready" : restorePrompt.phase);
+    setRestorePrompt(null);
+  }, [restorePrompt]);
+
+  const discardSession = useCallback(() => {
+    try { localStorage.removeItem(ACTIVE_KEY); } catch { /* ignore */ }
+    setRestorePrompt(null);
+  }, []);
 
   const begin = useCallback(async () => {
     setError(null);
@@ -192,8 +265,6 @@ function InterviewPage() {
       durationSec: duration,
       wordCount: words,
       fillerCount: fillers,
-      // Cap at a physiologically plausible upper bound to guard against
-      // any residual duplication; humans top out around ~300 wpm.
       wordsPerMinute: Math.min(computedWpm, 300),
       eyeContactPct: face.eyeContactPct,
     };
@@ -229,10 +300,10 @@ function InterviewPage() {
         const prev = JSON.parse(localStorage.getItem("im_sessions") ?? "[]");
         localStorage.setItem("im_sessions", JSON.stringify([session, ...prev].slice(0, 50)));
         localStorage.setItem("im_last_session", JSON.stringify(session));
+        localStorage.removeItem(ACTIVE_KEY);
       } catch {
         /* ignore storage errors */
       }
-      // stop stream
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       navigate({ to: "/report" });
@@ -257,7 +328,20 @@ function InterviewPage() {
     setMicOn(t.enabled);
   };
 
-  // ---------- UI ----------
+  const enterNativePip = useCallback(async () => {
+    const v = videoRef.current as (HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> }) | null;
+    if (!v?.requestPictureInPicture) {
+      setCamMode("pip");
+      return;
+    }
+    try {
+      await v.requestPictureInPicture();
+    } catch {
+      setCamMode("pip");
+    }
+  }, []);
+
+  // ---------- Setup screen ----------
 
   if (phase === "setup") {
     return (
@@ -269,6 +353,24 @@ function InterviewPage() {
             </div>
             <span className="font-display text-lg font-semibold">New interview</span>
           </div>
+
+          {restorePrompt && (
+            <div className="glass mb-4 flex items-center justify-between gap-4 rounded-2xl p-4 shadow-card">
+              <div className="text-sm">
+                <div className="font-medium">Resume previous session?</div>
+                <div className="text-xs text-muted-foreground">
+                  {restorePrompt.role} · {restorePrompt.answers.length}/{restorePrompt.questions.length} answered
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="ghost" onClick={discardSession}>Discard</Button>
+                <Button size="sm" onClick={restoreSession}>
+                  <RotateCcw className="mr-2 size-3.5" /> Resume
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="glass rounded-2xl p-8 shadow-card">
             <h1 className="text-2xl font-semibold">Configure your session</h1>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -339,51 +441,137 @@ function InterviewPage() {
 
   const currentQuestion = questions[qIndex];
 
+  // Shared <video> element rendering helper
+  const videoEl = (
+    <video
+      ref={videoRef}
+      autoPlay
+      muted
+      playsInline
+      className="h-full w-full object-cover [transform:scaleX(-1)]"
+    />
+  );
+
+  const camControls = (
+    <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1 rounded-full border border-border/60 bg-background/70 p-1 backdrop-blur-md">
+      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={toggleCam} disabled={!streamRef.current} title="Toggle camera">
+        {camOn ? <Camera className="size-3.5" /> : <CameraOff className="size-3.5 text-destructive" />}
+      </Button>
+      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={toggleMic} disabled={!streamRef.current} title="Toggle mic">
+        {micOn ? <Mic className="size-3.5" /> : <MicOff className="size-3.5 text-destructive" />}
+      </Button>
+      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={enterNativePip} title="Picture-in-picture">
+        <PictureInPicture2 className="size-3.5" />
+      </Button>
+      {camMode === "expanded" ? (
+        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setCamMode("docked")} title="Collapse">
+          <Minimize2 className="size-3.5" />
+        </Button>
+      ) : (
+        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setCamMode("expanded")} title="Expand">
+          <Maximize2 className="size-3.5" />
+        </Button>
+      )}
+      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setCamMode("minimized")} title="Minimize">
+        <X className="size-3.5" />
+      </Button>
+    </div>
+  );
+
+  const recBadge = phase === "answering" && (
+    <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-full bg-destructive/90 px-2.5 py-1 text-[10px] font-semibold text-destructive-foreground">
+      <span className="size-1.5 rounded-full bg-white animate-pulse" /> REC {elapsed.toFixed(0)}s
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-background bg-hero">
-      <div className="mx-auto grid max-w-7xl gap-6 px-6 py-8 lg:grid-cols-[1.4fr_1fr]">
-        {/* Video */}
-        <div className="space-y-4">
-          <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card aspect-video">
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              className="h-full w-full object-cover [transform:scaleX(-1)]"
-            />
-            {mediaError && (
-              <div className="absolute inset-0 grid place-items-center bg-background/80 p-6 text-center">
-                <div>
-                  <p className="text-sm font-medium text-destructive">Camera / microphone unavailable</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{mediaError}</p>
-                </div>
-              </div>
-            )}
-            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-2 rounded-full border border-border/60 bg-background/70 p-1 backdrop-blur-md">
-              <Button size="sm" variant="ghost" onClick={toggleCam} disabled={!streamRef.current}>
-                {camOn ? <Camera className="size-4" /> : <CameraOff className="size-4 text-destructive" />}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={toggleMic} disabled={!streamRef.current}>
-                {micOn ? <Mic className="size-4" /> : <MicOff className="size-4 text-destructive" />}
-              </Button>
-            </div>
-            {phase === "answering" && (
-              <div className="absolute top-3 left-3 flex items-center gap-2 rounded-full bg-destructive/90 px-3 py-1 text-xs font-semibold text-destructive-foreground">
-                <span className="size-2 rounded-full bg-white animate-pulse" /> REC {elapsed.toFixed(0)}s
-              </div>
-            )}
+    <div className="min-h-screen bg-background bg-hero pb-24">
+      {/* Expanded modal-style camera */}
+      {camMode === "expanded" && (
+        <div className="fixed inset-0 z-50 bg-background/95 p-6 backdrop-blur-md">
+          <div className="relative mx-auto h-full max-w-5xl overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
+            {videoEl}
+            {recBadge}
+            {camControls}
           </div>
+        </div>
+      )}
+
+      {/* Floating PiP / minimized chip */}
+      {(camMode === "pip" || camMode === "minimized") && (
+        <div
+          className={`fixed bottom-4 right-4 z-40 overflow-hidden rounded-xl border border-border/60 bg-card shadow-card ${
+            camMode === "minimized" ? "h-12 w-12" : "h-40 w-64"
+          }`}
+        >
+          {camMode === "pip" ? videoEl : (
+            <button
+              className="grid h-full w-full place-items-center text-muted-foreground hover:text-foreground"
+              onClick={() => setCamMode("docked")}
+              title="Restore camera"
+            >
+              <Camera className="size-5" />
+            </button>
+          )}
+          {camMode === "pip" && (
+            <div className="absolute top-1 right-1 flex gap-1">
+              <button
+                className="grid size-6 place-items-center rounded-md bg-background/80 text-foreground hover:bg-background"
+                onClick={() => setCamMode("docked")}
+                title="Dock"
+              >
+                <Maximize2 className="size-3" />
+              </button>
+              <button
+                className="grid size-6 place-items-center rounded-md bg-background/80 text-foreground hover:bg-background"
+                onClick={() => setCamMode("minimized")}
+                title="Minimize"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mx-auto grid max-w-7xl gap-4 px-4 py-6 lg:grid-cols-[1.3fr_1fr] lg:px-6">
+        {/* Left column */}
+        <div className="space-y-4">
+          {/* Docked camera — sticky so it stays visible while scrolling */}
+          {camMode === "docked" && (
+            <div className="sticky top-4 z-10">
+              <div className="relative aspect-video overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
+                {videoEl}
+                {mediaError && (
+                  <div className="absolute inset-0 grid place-items-center bg-background/80 p-6 text-center">
+                    <div>
+                      <p className="text-sm font-medium text-destructive">Camera / microphone unavailable</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{mediaError}</p>
+                    </div>
+                  </div>
+                )}
+                {camControls}
+                {recBadge}
+              </div>
+            </div>
+          )}
+
+          {camMode !== "docked" && (
+            <div className="rounded-2xl border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
+              Camera is {camMode}.{" "}
+              <button className="underline" onClick={() => setCamMode("docked")}>Dock it back</button>
+            </div>
+          )}
 
           {/* Transcript */}
-          <div className="glass rounded-2xl p-5 shadow-card">
+          <div className="glass rounded-2xl p-4 shadow-card">
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Live transcript</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live transcript</h3>
               {!speech.supported && (
-                <span className="text-xs text-warning">Web Speech API not available — Feature Not Available in this browser</span>
+                <span className="text-xs text-warning">Web Speech API not available in this browser</span>
               )}
             </div>
-            <div className="min-h-24 text-sm leading-relaxed">
+            <div className="min-h-20 text-sm leading-relaxed">
               {speech.transcript || <span className="text-muted-foreground">Your speech will appear here as you talk…</span>}
               {speech.interim && <span className="text-muted-foreground"> {speech.interim}</span>}
             </div>
@@ -392,14 +580,14 @@ function InterviewPage() {
 
         {/* Side panel */}
         <div className="space-y-4">
-          <div className="glass rounded-2xl p-6 shadow-card">
-            <div className="mb-3 flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground">
+          <div className="glass rounded-2xl p-5 shadow-card">
+            <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground">
               <span>Question {qIndex + 1} / {questions.length}</span>
               <span>{category.toUpperCase()}</span>
             </div>
-            <p className="text-lg font-medium leading-snug">{currentQuestion}</p>
+            <p className="text-base font-medium leading-snug">{currentQuestion}</p>
 
-            <div className="mt-6 flex gap-2">
+            <div className="mt-5 flex gap-2">
               {phase === "ready" && (
                 <Button
                   className="flex-1 bg-gradient-primary text-primary-foreground shadow-glow hover:opacity-90"
@@ -410,11 +598,7 @@ function InterviewPage() {
                 </Button>
               )}
               {phase === "answering" && (
-                <Button
-                  variant="destructive"
-                  className="flex-1"
-                  onClick={finishAnswer}
-                >
+                <Button variant="destructive" className="flex-1" onClick={finishAnswer}>
                   <StopCircle className="mr-2 size-4" />
                   {qIndex + 1 < questions.length ? "Next question" : "Finish & score"}
                 </Button>
@@ -428,62 +612,32 @@ function InterviewPage() {
             {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
           </div>
 
-          <div className="glass rounded-2xl p-6 shadow-card">
-            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="glass rounded-2xl p-5 shadow-card">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Live metrics
             </h3>
-            <div className="grid grid-cols-2 gap-3">
-              <Metric icon={<Gauge className="size-4" />} label="Speaking pace" value={`${liveWpm.toFixed(0)} wpm`} />
+            <div className="grid grid-cols-2 gap-2">
+              <Metric icon={<Gauge className="size-4" />} label="Pace" value={`${liveWpm.toFixed(0)} wpm`} />
               <Metric icon={<Sparkles className="size-4" />} label="Words" value={String(liveWords)} />
-              <Metric icon={<Mic className="size-4" />} label="Filler words" value={String(liveFillers)} />
+              <Metric icon={<Mic className="size-4" />} label="Fillers" value={String(liveFillers)} />
               <Metric
                 icon={<Eye className="size-4" />}
                 label="Eye contact"
                 value={
                   face.supported === false
-                    ? "Feature Not Available"
+                    ? "n/a"
                     : face.eyeContactPct == null
-                      ? "Calibrating…"
+                      ? "…"
                       : `${face.eyeContactPct.toFixed(0)}%`
                 }
                 muted={face.supported === false || face.eyeContactPct == null}
               />
             </div>
-            <div className="mt-4 text-xs text-muted-foreground">
-              Confidence indicators are derived from pace stability, filler ratio, and eye contact during scoring.
-            </div>
-          </div>
-
-          <div className="glass rounded-2xl p-6 shadow-card">
-            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-warning">
-              Temporary metric debug
-            </h3>
-            <div className="space-y-2 text-xs font-mono leading-relaxed text-muted-foreground">
-              <DebugRow label="Raw transcript" value={speech.transcript || "(empty)"} />
-              <DebugRow label="Interim transcript" value={speech.interim || "(empty)"} />
-              <DebugRow label="Unique transcript" value={liveClean || "(empty)"} />
-              <DebugRow label="Word count calculation" value={`countWords(uniqueTranscript) = ${liveWords}`} />
-              <DebugRow label="WPM calculation" value={`${liveWords} words / ${elapsed.toFixed(2)} sec * 60 = ${liveWpm.toFixed(2)} wpm`} />
-              <DebugRow
-                label="Detected filler words"
-                value={liveDetectedFillers.length ? liveDetectedFillers.join(", ") : "(none)"}
-              />
-              <DebugRow
-                label="Current eye-contact frame"
-                value={
-                  face.debug.hasFace
-                    ? `${face.debug.engaged ? "engaged" : "not engaged"} · horiz ${formatDebugNumber(face.debug.horiz)} (${face.debug.horizOk ? "ok" : "fail"}) · vert ${formatDebugNumber(face.debug.vert)} (${face.debug.vertOk ? "ok" : "fail"}) · yaw ${formatDebugNumber(face.debug.yawOffset)} (${face.debug.yawOk ? "ok" : "fail"})`
-                    : "no face detected"
-                }
-              />
-              <DebugRow label="Total frames" value={String(face.debug.totalFrames)} />
-              <DebugRow label="Engaged frames" value={String(face.debug.engagedFrames)} />
-            </div>
           </div>
 
           {answers.length > 0 && (
-            <div className="glass rounded-2xl p-6 shadow-card">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="glass rounded-2xl p-5 shadow-card">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Completed
               </h3>
               <ul className="space-y-2 text-sm">
@@ -491,7 +645,7 @@ function InterviewPage() {
                   <li key={i} className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-background/40 px-3 py-2">
                     <span className="truncate">{i + 1}. {a.question}</span>
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      {a.wordCount}w · {a.fillerCount} fillers
+                      {a.wordCount}w · {a.fillerCount}f
                     </span>
                   </li>
                 ))}
@@ -500,19 +654,6 @@ function InterviewPage() {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function formatDebugNumber(value: number | null): string {
-  return value == null ? "n/a" : value.toFixed(3);
-}
-
-function DebugRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid gap-1 rounded-lg border border-border/40 bg-background/40 p-2 sm:grid-cols-[11rem_1fr]">
-      <span className="text-foreground">{label}</span>
-      <span className="break-words">{value}</span>
     </div>
   );
 }
@@ -533,7 +674,7 @@ function Metric({
       <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
         {icon} {label}
       </div>
-      <div className={`text-lg font-semibold tabular-nums ${muted ? "text-muted-foreground" : ""}`}>
+      <div className={`text-base font-semibold tabular-nums ${muted ? "text-muted-foreground" : ""}`}>
         {value}
       </div>
     </div>
