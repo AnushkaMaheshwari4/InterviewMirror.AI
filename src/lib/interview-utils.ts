@@ -1,6 +1,9 @@
 export const FILLER_WORDS = [
   "um",
   "uh",
+  "hmm",
+  "ah",
+  "er",
   "like",
   "you know",
   "basically",
@@ -11,7 +14,15 @@ export const FILLER_WORDS = [
   "i mean",
   "so",
   "right",
+  "okay",
+  "well",
 ];
+
+export function fillerFrequency(text: string): Record<string, number> {
+  const freq: Record<string, number> = {};
+  for (const f of detectFillers(text)) freq[f] = (freq[f] ?? 0) + 1;
+  return freq;
+}
 
 export function countFillers(text: string): number {
   if (!text) return 0;
