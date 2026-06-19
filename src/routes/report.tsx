@@ -42,6 +42,9 @@ type Session = {
   category: string;
   answers: AnswerRecord[];
   report: Report;
+  completedEarly?: boolean;
+  totalQuestions?: number;
+  answeredQuestions?: number;
 };
 
 function ReportPage() {
