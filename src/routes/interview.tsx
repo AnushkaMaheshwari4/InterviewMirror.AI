@@ -11,7 +11,6 @@ import {
   Mic,
   MicOff,
   Minimize2,
-  PictureInPicture2,
   RotateCcw,
   Sparkles,
   StopCircle,
@@ -68,7 +67,7 @@ type PersistedSession = {
   answers: AnswerRecord[];
 };
 
-type CamMode = "docked" | "minimized" | "pip" | "expanded";
+type CamMode = "mini" | "expanded" | "hidden";
 
 const ACTIVE_KEY = "im_active_session";
 
@@ -103,6 +102,7 @@ function InterviewPage() {
   const [loadingMsg, setLoadingMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restorePrompt, setRestorePrompt] = useState<PersistedSession | null>(null);
+  const [confirmEnd, setConfirmEnd] = useState(false);
 
   // Media
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -110,7 +110,11 @@ function InterviewPage() {
   const [camOn, setCamOn] = useState(false);
   const [micOn, setMicOn] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
-  const [camMode, setCamMode] = useState<CamMode>("docked");
+  const [camMode, setCamMode] = useState<CamMode>("mini");
+
+  // Floating cam position (draggable)
+  const [camPos, setCamPos] = useState<{ x: number; y: number } | null>(null);
+  const dragRef = useRef<{ ox: number; oy: number; px: number; py: number } | null>(null);
 
   // Live metrics
   const startTsRef = useRef<number | null>(null);
@@ -135,13 +139,10 @@ function InterviewPage() {
     }
   }, [role, category, count, phase, questions, qIndex, answers]);
 
-  // Acquire camera/mic when leaving setup. Stable dep: a boolean derived inline
-  // would still work, but using `phase` directly is clearer and avoids the
-  // appearance of an unstable dep array.
   const inSession = phase !== "setup";
   useEffect(() => {
     if (!inSession) return;
-    if (streamRef.current) return; // already acquired
+    if (streamRef.current) return;
     let cancelled = false;
     (async () => {
       try {
@@ -173,7 +174,7 @@ function InterviewPage() {
     };
   }, [inSession]);
 
-  // Re-attach stream to <video> when the element re-mounts (e.g. mode change)
+  // Re-attach stream to <video> when the element re-mounts (mode change)
   useEffect(() => {
     if (videoRef.current && streamRef.current && videoRef.current.srcObject !== streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
@@ -181,7 +182,6 @@ function InterviewPage() {
     }
   }, [camMode, phase]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -200,7 +200,6 @@ function InterviewPage() {
     return () => window.clearInterval(id);
   }, [phase]);
 
-  // Combine finalized + interim transcript for live metrics
   const liveClean = useMemo(
     () => dedupeTranscript([speech.transcript, speech.interim].filter(Boolean).join(" ").trim()),
     [speech.transcript, speech.interim],
@@ -252,22 +251,25 @@ function InterviewPage() {
     setPhase("answering");
   }, [speech, face]);
 
-  const finishAnswer = useCallback(() => {
+  const buildRecord = useCallback((): AnswerRecord => {
     const duration = startTsRef.current ? (performance.now() - startTsRef.current) / 1000 : 0;
-    speech.stop();
     const transcript = dedupeTranscript(speech.transcript);
     const words = countWords(transcript);
     const fillers = countFillers(transcript);
-    const computedWpm = wpm(words, duration);
-    const record: AnswerRecord = {
+    return {
       question: questions[qIndex],
       transcript,
       durationSec: duration,
       wordCount: words,
       fillerCount: fillers,
-      wordsPerMinute: Math.min(computedWpm, 300),
+      wordsPerMinute: Math.min(wpm(words, duration), 300),
       eyeContactPct: face.eyeContactPct,
     };
+  }, [questions, qIndex, speech.transcript, face.eyeContactPct]);
+
+  const finishAnswer = useCallback(() => {
+    speech.stop();
+    const record = buildRecord();
     const next = [...answers, record];
     setAnswers(next);
     startTsRef.current = null;
@@ -277,14 +279,37 @@ function InterviewPage() {
       setQIndex(qIndex + 1);
       setPhase("ready");
     } else {
-      void submitForScoring(next);
+      void submitForScoring(next, false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answers, qIndex, questions, speech, face]);
+  }, [answers, qIndex, questions, speech, buildRecord]);
 
-  async function submitForScoring(records: AnswerRecord[]) {
+  const endInterviewEarly = useCallback(() => {
+    setConfirmEnd(false);
+    let finalAnswers = answers;
+    if (phase === "answering") {
+      speech.stop();
+      const record = buildRecord();
+      finalAnswers = [...answers, record];
+      setAnswers(finalAnswers);
+      startTsRef.current = null;
+      setElapsed(0);
+    }
+    if (finalAnswers.length === 0) {
+      // Nothing to score — clean up and bail to dashboard
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      try { localStorage.removeItem(ACTIVE_KEY); } catch { /* ignore */ }
+      navigate({ to: "/dashboard" });
+      return;
+    }
+    void submitForScoring(finalAnswers, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answers, phase, speech, buildRecord, navigate]);
+
+  async function submitForScoring(records: AnswerRecord[], completedEarly: boolean) {
     setPhase("scoring");
-    setLoadingMsg("Scoring your interview…");
+    setLoadingMsg(completedEarly ? "Scoring completed answers…" : "Scoring your interview…");
     setError(null);
     try {
       const res = await scoreFn({ data: { role, answers: records } });
@@ -295,6 +320,9 @@ function InterviewPage() {
         category,
         answers: records,
         report: res.report,
+        completedEarly,
+        totalQuestions: questions.length,
+        answeredQuestions: records.length,
       };
       try {
         const prev = JSON.parse(localStorage.getItem("im_sessions") ?? "[]");
@@ -302,7 +330,7 @@ function InterviewPage() {
         localStorage.setItem("im_last_session", JSON.stringify(session));
         localStorage.removeItem(ACTIVE_KEY);
       } catch {
-        /* ignore storage errors */
+        /* ignore */
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -328,21 +356,32 @@ function InterviewPage() {
     setMicOn(t.enabled);
   };
 
-  const enterNativePip = useCallback(async () => {
-    const v = videoRef.current as (HTMLVideoElement & { requestPictureInPicture?: () => Promise<unknown> }) | null;
-    if (!v?.requestPictureInPicture) {
-      setCamMode("pip");
-      return;
-    }
-    try {
-      await v.requestPictureInPicture();
-    } catch {
-      setCamMode("pip");
-    }
-  }, []);
+  // ---------- Drag handlers for floating mini cam ----------
+  const onDragStart = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
+    const target = e.currentTarget as HTMLDivElement;
+    const rect = target.getBoundingClientRect();
+    dragRef.current = {
+      ox: e.clientX - rect.left,
+      oy: e.clientY - rect.top,
+      px: rect.width,
+      py: rect.height,
+    };
+    target.setPointerCapture(e.pointerId);
+  };
+  const onDragMove = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    const { ox, oy, px, py } = dragRef.current;
+    const x = Math.max(8, Math.min(window.innerWidth - px - 8, e.clientX - ox));
+    const y = Math.max(8, Math.min(window.innerHeight - py - 8, e.clientY - oy));
+    setCamPos({ x, y });
+  };
+  const onDragEnd = (e: React.PointerEvent) => {
+    dragRef.current = null;
+    try { (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
 
   // ---------- Setup screen ----------
-
   if (phase === "setup") {
     return (
       <div className="min-h-screen bg-background bg-hero">
@@ -441,7 +480,6 @@ function InterviewPage() {
 
   const currentQuestion = questions[qIndex];
 
-  // Shared <video> element rendering helper
   const videoEl = (
     <video
       ref={videoRef}
@@ -452,140 +490,116 @@ function InterviewPage() {
     />
   );
 
-  const camControls = (
-    <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1 rounded-full border border-border/60 bg-background/70 p-1 backdrop-blur-md">
-      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={toggleCam} disabled={!streamRef.current} title="Toggle camera">
-        {camOn ? <Camera className="size-3.5" /> : <CameraOff className="size-3.5 text-destructive" />}
-      </Button>
-      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={toggleMic} disabled={!streamRef.current} title="Toggle mic">
-        {micOn ? <Mic className="size-3.5" /> : <MicOff className="size-3.5 text-destructive" />}
-      </Button>
-      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={enterNativePip} title="Picture-in-picture">
-        <PictureInPicture2 className="size-3.5" />
-      </Button>
-      {camMode === "expanded" ? (
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setCamMode("docked")} title="Collapse">
-          <Minimize2 className="size-3.5" />
-        </Button>
-      ) : (
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setCamMode("expanded")} title="Expand">
-          <Maximize2 className="size-3.5" />
-        </Button>
-      )}
-      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setCamMode("minimized")} title="Minimize">
-        <X className="size-3.5" />
-      </Button>
-    </div>
-  );
-
   const recBadge = phase === "answering" && (
-    <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-full bg-destructive/90 px-2.5 py-1 text-[10px] font-semibold text-destructive-foreground">
+    <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-full bg-destructive/90 px-2 py-0.5 text-[10px] font-semibold text-destructive-foreground">
       <span className="size-1.5 rounded-full bg-white animate-pulse" /> REC {elapsed.toFixed(0)}s
     </div>
   );
 
+  // Default mini position: bottom-right
+  const miniStyle: React.CSSProperties = camPos
+    ? { left: camPos.x, top: camPos.y, right: "auto", bottom: "auto" }
+    : { right: 16, bottom: 16 };
+
   return (
     <div className="min-h-screen bg-background bg-hero pb-24">
-      {/* Expanded modal-style camera */}
+      {/* Expanded modal camera */}
       {camMode === "expanded" && (
         <div className="fixed inset-0 z-50 bg-background/95 p-6 backdrop-blur-md">
           <div className="relative mx-auto h-full max-w-5xl overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
             {videoEl}
             {recBadge}
-            {camControls}
+            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1 rounded-full border border-border/60 bg-background/70 p-1 backdrop-blur-md">
+              <CamBtn onClick={toggleCam} title="Toggle camera">
+                {camOn ? <Camera className="size-3.5" /> : <CameraOff className="size-3.5 text-destructive" />}
+              </CamBtn>
+              <CamBtn onClick={toggleMic} title="Toggle mic">
+                {micOn ? <Mic className="size-3.5" /> : <MicOff className="size-3.5 text-destructive" />}
+              </CamBtn>
+              <CamBtn onClick={() => setCamMode("mini")} title="Collapse to mini">
+                <Minimize2 className="size-3.5" />
+              </CamBtn>
+              <CamBtn onClick={() => setCamMode("hidden")} title="Hide">
+                <X className="size-3.5" />
+              </CamBtn>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Floating PiP / minimized chip */}
-      {(camMode === "pip" || camMode === "minimized") && (
+      {/* Floating mini camera — draggable, always visible while scrolling */}
+      {camMode === "mini" && (
         <div
-          className={`fixed bottom-4 right-4 z-40 overflow-hidden rounded-xl border border-border/60 bg-card shadow-card ${
-            camMode === "minimized" ? "h-12 w-12" : "h-40 w-64"
-          }`}
+          className="fixed z-40 touch-none select-none overflow-hidden rounded-xl border border-border/60 bg-card shadow-card"
+          style={{ ...miniStyle, width: 224, height: 140 }}
+          onPointerDown={onDragStart}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragEnd}
+          onPointerCancel={onDragEnd}
         >
-          {camMode === "pip" ? videoEl : (
-            <button
-              className="grid h-full w-full place-items-center text-muted-foreground hover:text-foreground"
-              onClick={() => setCamMode("docked")}
-              title="Restore camera"
-            >
-              <Camera className="size-5" />
-            </button>
-          )}
-          {camMode === "pip" && (
-            <div className="absolute top-1 right-1 flex gap-1">
-              <button
-                className="grid size-6 place-items-center rounded-md bg-background/80 text-foreground hover:bg-background"
-                onClick={() => setCamMode("docked")}
-                title="Dock"
-              >
-                <Maximize2 className="size-3" />
-              </button>
-              <button
-                className="grid size-6 place-items-center rounded-md bg-background/80 text-foreground hover:bg-background"
-                onClick={() => setCamMode("minimized")}
-                title="Minimize"
-              >
-                <X className="size-3" />
-              </button>
+          {videoEl}
+          {recBadge}
+          {mediaError && (
+            <div className="absolute inset-0 grid place-items-center bg-background/85 p-2 text-center text-[10px] text-destructive">
+              {mediaError}
             </div>
           )}
+          <div data-no-drag className="absolute bottom-1 left-1/2 flex -translate-x-1/2 gap-0.5 rounded-full border border-border/60 bg-background/80 p-0.5 backdrop-blur-md">
+            <CamBtn onClick={toggleCam} title="Toggle camera">
+              {camOn ? <Camera className="size-3" /> : <CameraOff className="size-3 text-destructive" />}
+            </CamBtn>
+            <CamBtn onClick={toggleMic} title="Toggle mic">
+              {micOn ? <Mic className="size-3" /> : <MicOff className="size-3 text-destructive" />}
+            </CamBtn>
+            <CamBtn onClick={() => setCamMode("expanded")} title="Expand">
+              <Maximize2 className="size-3" />
+            </CamBtn>
+            <CamBtn onClick={() => setCamMode("hidden")} title="Hide">
+              <X className="size-3" />
+            </CamBtn>
+          </div>
         </div>
       )}
 
-      <div className="mx-auto grid max-w-7xl gap-4 px-4 py-6 lg:grid-cols-[1.3fr_1fr] lg:px-6">
-        {/* Left column */}
-        <div className="space-y-4">
-          {/* Docked camera — sticky so it stays visible while scrolling */}
-          {camMode === "docked" && (
-            <div className="sticky top-4 z-10">
-              <div className="relative aspect-video overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
-                {videoEl}
-                {mediaError && (
-                  <div className="absolute inset-0 grid place-items-center bg-background/80 p-6 text-center">
-                    <div>
-                      <p className="text-sm font-medium text-destructive">Camera / microphone unavailable</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{mediaError}</p>
-                    </div>
-                  </div>
-                )}
-                {camControls}
-                {recBadge}
-              </div>
-            </div>
-          )}
+      {/* Restore chip when hidden */}
+      {camMode === "hidden" && (
+        <button
+          onClick={() => setCamMode("mini")}
+          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-border/60 bg-card/90 px-3 py-2 text-xs shadow-card backdrop-blur-md hover:bg-card"
+          title="Show camera"
+        >
+          <Camera className="size-3.5" /> Show camera
+        </button>
+      )}
 
-          {camMode !== "docked" && (
-            <div className="rounded-2xl border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-              Camera is {camMode}.{" "}
-              <button className="underline" onClick={() => setCamMode("docked")}>Dock it back</button>
-            </div>
-          )}
-
-          {/* Transcript */}
-          <div className="glass rounded-2xl p-4 shadow-card">
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live transcript</h3>
-              {!speech.supported && (
-                <span className="text-xs text-warning">Web Speech API not available in this browser</span>
-              )}
-            </div>
-            <div className="min-h-20 text-sm leading-relaxed">
-              {speech.transcript || <span className="text-muted-foreground">Your speech will appear here as you talk…</span>}
-              {speech.interim && <span className="text-muted-foreground"> {speech.interim}</span>}
+      {/* End interview confirmation */}
+      {confirmEnd && (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-background/70 p-4 backdrop-blur-sm">
+          <div className="glass w-full max-w-md rounded-2xl p-6 shadow-card">
+            <h3 className="text-lg font-semibold">End interview?</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Are you sure you want to end the interview? Completed questions
+              ({answers.length + (phase === "answering" ? 1 : 0)}/{questions.length}) will still be analyzed and scored.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setConfirmEnd(false)}>Continue interview</Button>
+              <Button variant="destructive" onClick={endInterviewEarly}>
+                <StopCircle className="mr-2 size-4" /> End interview
+              </Button>
             </div>
           </div>
         </div>
+      )}
 
-        {/* Side panel */}
+      <div className="mx-auto grid max-w-5xl gap-4 px-4 py-6 lg:grid-cols-[1.4fr_1fr] lg:px-6">
+        {/* Left column — Question + Transcript */}
         <div className="space-y-4">
           <div className="glass rounded-2xl p-5 shadow-card">
             <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground">
               <span>Question {qIndex + 1} / {questions.length}</span>
               <span>{category.toUpperCase()}</span>
             </div>
-            <p className="text-base font-medium leading-snug">{currentQuestion}</p>
+            <p className="text-lg font-medium leading-snug">{currentQuestion}</p>
 
             <div className="mt-5 flex gap-2">
               {phase === "ready" && (
@@ -612,6 +626,22 @@ function InterviewPage() {
             {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
           </div>
 
+          <div className="glass rounded-2xl p-4 shadow-card">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live transcript</h3>
+              {!speech.supported && (
+                <span className="text-xs text-warning">Web Speech API not available</span>
+              )}
+            </div>
+            <div className="min-h-24 text-sm leading-relaxed">
+              {speech.transcript || <span className="text-muted-foreground">Your speech will appear here as you talk…</span>}
+              {speech.interim && <span className="text-muted-foreground"> {speech.interim}</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* Right panel — Metrics + Controls */}
+        <div className="space-y-4">
           <div className="glass rounded-2xl p-5 shadow-card">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Live metrics
@@ -635,10 +665,19 @@ function InterviewPage() {
             </div>
           </div>
 
+          <Button
+            variant="outline"
+            className="w-full border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => setConfirmEnd(true)}
+            disabled={phase === "scoring"}
+          >
+            <StopCircle className="mr-2 size-4" /> End interview
+          </Button>
+
           {answers.length > 0 && (
             <div className="glass rounded-2xl p-5 shadow-card">
               <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Completed
+                Completed ({answers.length}/{questions.length})
               </h3>
               <ul className="space-y-2 text-sm">
                 {answers.map((a, i) => (
@@ -655,6 +694,27 @@ function InterviewPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function CamBtn({
+  children,
+  onClick,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  title: string;
+}) {
+  return (
+    <button
+      data-no-drag
+      onClick={onClick}
+      title={title}
+      className="grid h-6 w-6 place-items-center rounded-full text-foreground hover:bg-background"
+    >
+      {children}
+    </button>
   );
 }
 
