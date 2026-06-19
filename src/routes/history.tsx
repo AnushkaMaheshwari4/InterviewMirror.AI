@@ -17,6 +17,9 @@ type Session = {
   role: string;
   category: string;
   report: { overall: number };
+  completedEarly?: boolean;
+  totalQuestions?: number;
+  answeredQuestions?: number;
 };
 
 function HistoryPage() {
