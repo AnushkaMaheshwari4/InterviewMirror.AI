@@ -29,9 +29,9 @@ const ACTIONS = [
   },
   {
     title: "Practice Questions",
-    body: "Generate fresh interview questions by category and role.",
+    body: "Generate fresh interview questions by category and role. No camera or mic.",
     icon: ListChecks,
-    to: "/interview" as const,
+    to: "/practice" as const,
   },
   {
     title: "History",
