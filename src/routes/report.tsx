@@ -42,6 +42,9 @@ type Session = {
   category: string;
   answers: AnswerRecord[];
   report: Report;
+  completedEarly?: boolean;
+  totalQuestions?: number;
+  answeredQuestions?: number;
 };
 
 function ReportPage() {
@@ -116,6 +119,11 @@ function ReportPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           {new Date(session.createdAt).toLocaleString()} · {session.category} · {session.answers.length} questions
         </p>
+        {session.completedEarly && (
+          <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-warning/40 bg-warning/10 px-3 py-1 text-xs font-medium text-warning">
+            Completed Early · Questions Answered: {session.answeredQuestions ?? session.answers.length}/{session.totalQuestions ?? session.answers.length}
+          </div>
+        )}
 
         <div className="mt-8 grid gap-4 md:grid-cols-4">
           <ScoreCard label="Overall" score={report.overall} highlight />

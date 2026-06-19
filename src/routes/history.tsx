@@ -17,6 +17,9 @@ type Session = {
   role: string;
   category: string;
   report: { overall: number };
+  completedEarly?: boolean;
+  totalQuestions?: number;
+  answeredQuestions?: number;
 };
 
 function HistoryPage() {
@@ -74,6 +77,11 @@ function HistoryPage() {
                     <div className="font-medium">{s.role}</div>
                     <div className="text-xs text-muted-foreground">
                       {new Date(s.createdAt).toLocaleString()} · {s.category}
+                      {s.completedEarly && (
+                        <span className="ml-2 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
+                          Early · {s.answeredQuestions ?? "?"}/{s.totalQuestions ?? "?"}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="text-2xl font-bold text-gradient tabular-nums">{s.report.overall}</div>
