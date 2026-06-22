@@ -563,8 +563,46 @@ function InterviewPage() {
           </div>
         </div>
 
-        {/* Right panel — Metrics + Controls */}
-        <div className="space-y-4">
+        {/* Right panel — Camera + Metrics + Controls (sticky) */}
+        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          {/* Embedded webcam — compact, sticky inside layout */}
+          {camMode !== "hidden" ? (
+            <div className="glass overflow-hidden rounded-2xl p-2 shadow-card">
+              <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black">
+                {videoEl}
+                {recBadge}
+                {mediaError && (
+                  <div className="absolute inset-0 grid place-items-center bg-background/85 p-2 text-center text-xs text-destructive">
+                    {mediaError}
+                  </div>
+                )}
+              </div>
+              <div className="mt-2 flex items-center justify-center gap-1">
+                <CamBtn onClick={toggleCam} title="Toggle camera">
+                  {camOn ? <Camera className="size-3.5" /> : <CameraOff className="size-3.5 text-destructive" />}
+                </CamBtn>
+                <CamBtn onClick={toggleMic} title="Toggle mic">
+                  {micOn ? <Mic className="size-3.5" /> : <MicOff className="size-3.5 text-destructive" />}
+                </CamBtn>
+                <CamBtn onClick={() => setCamMode("expanded")} title="Expand">
+                  <Maximize2 className="size-3.5" />
+                </CamBtn>
+                <CamBtn onClick={() => setCamMode("hidden")} title="Collapse">
+                  <Minimize2 className="size-3.5" />
+                </CamBtn>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setCamMode("mini")}
+              className="glass flex w-full items-center justify-center gap-2 rounded-2xl px-3 py-2 text-xs shadow-card hover:bg-card"
+              title="Show camera"
+            >
+              <Camera className="size-3.5" /> Show camera
+            </button>
+          )}
+
+
           <div className="glass rounded-2xl p-5 shadow-card">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Live metrics
