@@ -34,12 +34,19 @@ const ACTIONS = [
     to: "/practice" as const,
   },
   {
+    title: "SkillUp AI",
+    body: "Upload your resume for a strength score and a skill-gap roadmap toward your target role.",
+    icon: Rocket,
+    to: "/skillup" as const,
+  },
+  {
     title: "History",
     body: "Browse previous interview sessions stored on this device.",
     icon: History,
     to: "/history" as const,
   },
 ];
+
 
 function Dashboard() {
   return (
