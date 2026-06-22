@@ -112,9 +112,6 @@ function InterviewPage() {
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [camMode, setCamMode] = useState<CamMode>("mini");
 
-  // Floating cam position (draggable)
-  const [camPos, setCamPos] = useState<{ x: number; y: number } | null>(null);
-  const dragRef = useRef<{ ox: number; oy: number; px: number; py: number } | null>(null);
 
   // Live metrics
   const startTsRef = useRef<number | null>(null);
@@ -356,31 +353,6 @@ function InterviewPage() {
     setMicOn(t.enabled);
   };
 
-  // ---------- Drag handlers for floating mini cam ----------
-  const onDragStart = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
-    const target = e.currentTarget as HTMLDivElement;
-    const rect = target.getBoundingClientRect();
-    dragRef.current = {
-      ox: e.clientX - rect.left,
-      oy: e.clientY - rect.top,
-      px: rect.width,
-      py: rect.height,
-    };
-    target.setPointerCapture(e.pointerId);
-  };
-  const onDragMove = (e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    const { ox, oy, px, py } = dragRef.current;
-    const x = Math.max(8, Math.min(window.innerWidth - px - 8, e.clientX - ox));
-    const y = Math.max(8, Math.min(window.innerHeight - py - 8, e.clientY - oy));
-    setCamPos({ x, y });
-  };
-  const onDragEnd = (e: React.PointerEvent) => {
-    dragRef.current = null;
-    try { (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-  };
-
   // ---------- Setup screen ----------
   if (phase === "setup") {
     return (
@@ -496,11 +468,6 @@ function InterviewPage() {
     </div>
   );
 
-  // Default mini position: bottom-right
-  const miniStyle: React.CSSProperties = camPos
-    ? { left: camPos.x, top: camPos.y, right: "auto", bottom: "auto" }
-    : { right: 16, bottom: 16 };
-
   return (
     <div className="min-h-screen bg-background bg-hero pb-24">
       {/* Expanded modal camera */}
@@ -516,7 +483,7 @@ function InterviewPage() {
               <CamBtn onClick={toggleMic} title="Toggle mic">
                 {micOn ? <Mic className="size-3.5" /> : <MicOff className="size-3.5 text-destructive" />}
               </CamBtn>
-              <CamBtn onClick={() => setCamMode("mini")} title="Collapse to mini">
+              <CamBtn onClick={() => setCamMode("mini")} title="Collapse">
                 <Minimize2 className="size-3.5" />
               </CamBtn>
               <CamBtn onClick={() => setCamMode("hidden")} title="Hide">
@@ -527,50 +494,6 @@ function InterviewPage() {
         </div>
       )}
 
-      {/* Floating mini camera — draggable, always visible while scrolling */}
-      {camMode === "mini" && (
-        <div
-          className="fixed z-40 touch-none select-none overflow-hidden rounded-xl border border-border/60 bg-card shadow-card"
-          style={{ ...miniStyle, width: 224, height: 140 }}
-          onPointerDown={onDragStart}
-          onPointerMove={onDragMove}
-          onPointerUp={onDragEnd}
-          onPointerCancel={onDragEnd}
-        >
-          {videoEl}
-          {recBadge}
-          {mediaError && (
-            <div className="absolute inset-0 grid place-items-center bg-background/85 p-2 text-center text-[10px] text-destructive">
-              {mediaError}
-            </div>
-          )}
-          <div data-no-drag className="absolute bottom-1 left-1/2 flex -translate-x-1/2 gap-0.5 rounded-full border border-border/60 bg-background/80 p-0.5 backdrop-blur-md">
-            <CamBtn onClick={toggleCam} title="Toggle camera">
-              {camOn ? <Camera className="size-3" /> : <CameraOff className="size-3 text-destructive" />}
-            </CamBtn>
-            <CamBtn onClick={toggleMic} title="Toggle mic">
-              {micOn ? <Mic className="size-3" /> : <MicOff className="size-3 text-destructive" />}
-            </CamBtn>
-            <CamBtn onClick={() => setCamMode("expanded")} title="Expand">
-              <Maximize2 className="size-3" />
-            </CamBtn>
-            <CamBtn onClick={() => setCamMode("hidden")} title="Hide">
-              <X className="size-3" />
-            </CamBtn>
-          </div>
-        </div>
-      )}
-
-      {/* Restore chip when hidden */}
-      {camMode === "hidden" && (
-        <button
-          onClick={() => setCamMode("mini")}
-          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-border/60 bg-card/90 px-3 py-2 text-xs shadow-card backdrop-blur-md hover:bg-card"
-          title="Show camera"
-        >
-          <Camera className="size-3.5" /> Show camera
-        </button>
-      )}
 
       {/* End interview confirmation */}
       {confirmEnd && (
@@ -640,8 +563,46 @@ function InterviewPage() {
           </div>
         </div>
 
-        {/* Right panel — Metrics + Controls */}
-        <div className="space-y-4">
+        {/* Right panel — Camera + Metrics + Controls (sticky) */}
+        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          {/* Embedded webcam — compact, sticky inside layout */}
+          {camMode !== "hidden" ? (
+            <div className="glass overflow-hidden rounded-2xl p-2 shadow-card">
+              <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black">
+                {videoEl}
+                {recBadge}
+                {mediaError && (
+                  <div className="absolute inset-0 grid place-items-center bg-background/85 p-2 text-center text-xs text-destructive">
+                    {mediaError}
+                  </div>
+                )}
+              </div>
+              <div className="mt-2 flex items-center justify-center gap-1">
+                <CamBtn onClick={toggleCam} title="Toggle camera">
+                  {camOn ? <Camera className="size-3.5" /> : <CameraOff className="size-3.5 text-destructive" />}
+                </CamBtn>
+                <CamBtn onClick={toggleMic} title="Toggle mic">
+                  {micOn ? <Mic className="size-3.5" /> : <MicOff className="size-3.5 text-destructive" />}
+                </CamBtn>
+                <CamBtn onClick={() => setCamMode("expanded")} title="Expand">
+                  <Maximize2 className="size-3.5" />
+                </CamBtn>
+                <CamBtn onClick={() => setCamMode("hidden")} title="Collapse">
+                  <Minimize2 className="size-3.5" />
+                </CamBtn>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setCamMode("mini")}
+              className="glass flex w-full items-center justify-center gap-2 rounded-2xl px-3 py-2 text-xs shadow-card hover:bg-card"
+              title="Show camera"
+            >
+              <Camera className="size-3.5" /> Show camera
+            </button>
+          )}
+
+
           <div className="glass rounded-2xl p-5 shadow-card">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Live metrics
