@@ -61,7 +61,6 @@ async function extractText(file: File): Promise<string> {
   if (name.endsWith(".pdf")) {
     // Lazy load pdfjs in the browser only
     const pdfjs = await import("pdfjs-dist");
-    // @ts-expect-error - vite worker import
     const worker = await import("pdfjs-dist/build/pdf.worker.mjs?url");
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
     const buf = await file.arrayBuffer();
@@ -75,7 +74,9 @@ async function extractText(file: File): Promise<string> {
     return text.trim();
   }
   if (name.endsWith(".docx")) {
+    // @ts-expect-error - mammoth browser entry has no type declarations
     const mammoth = await import("mammoth/mammoth.browser");
+
     const buf = await file.arrayBuffer();
     const { value } = await mammoth.extractRawText({ arrayBuffer: buf });
     return value.trim();

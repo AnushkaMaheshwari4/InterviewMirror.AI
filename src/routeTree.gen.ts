@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SkillupRouteImport } from './routes/skillup'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReportRouteImport } from './routes/report'
 import { Route as PracticeRouteImport } from './routes/practice'
@@ -17,6 +18,11 @@ import { Route as HistoryRouteImport } from './routes/history'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 
+const SkillupRoute = SkillupRouteImport.update({
+  id: '/skillup',
+  path: '/skillup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -61,6 +67,7 @@ export interface FileRoutesByFullPath {
   '/practice': typeof PracticeRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRoute
+  '/skillup': typeof SkillupRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -70,6 +77,7 @@ export interface FileRoutesByTo {
   '/practice': typeof PracticeRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRoute
+  '/skillup': typeof SkillupRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -80,6 +88,7 @@ export interface FileRoutesById {
   '/practice': typeof PracticeRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRoute
+  '/skillup': typeof SkillupRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -91,6 +100,7 @@ export interface FileRouteTypes {
     | '/practice'
     | '/report'
     | '/settings'
+    | '/skillup'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -100,6 +110,7 @@ export interface FileRouteTypes {
     | '/practice'
     | '/report'
     | '/settings'
+    | '/skillup'
   id:
     | '__root__'
     | '/'
@@ -109,6 +120,7 @@ export interface FileRouteTypes {
     | '/practice'
     | '/report'
     | '/settings'
+    | '/skillup'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -119,10 +131,18 @@ export interface RootRouteChildren {
   PracticeRoute: typeof PracticeRoute
   ReportRoute: typeof ReportRoute
   SettingsRoute: typeof SettingsRoute
+  SkillupRoute: typeof SkillupRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/skillup': {
+      id: '/skillup'
+      path: '/skillup'
+      fullPath: '/skillup'
+      preLoaderRoute: typeof SkillupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -183,6 +203,7 @@ const rootRouteChildren: RootRouteChildren = {
   PracticeRoute: PracticeRoute,
   ReportRoute: ReportRoute,
   SettingsRoute: SettingsRoute,
+  SkillupRoute: SkillupRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
