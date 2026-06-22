@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { FileText, History, ListChecks, PlayCircle, Sparkles } from "lucide-react";
+import { FileText, History, ListChecks, PlayCircle, Rocket, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -34,12 +34,19 @@ const ACTIONS = [
     to: "/practice" as const,
   },
   {
+    title: "SkillUp AI",
+    body: "Upload your resume for a strength score and a skill-gap roadmap toward your target role.",
+    icon: Rocket,
+    to: "/skillup" as const,
+  },
+  {
     title: "History",
     body: "Browse previous interview sessions stored on this device.",
     icon: History,
     to: "/history" as const,
   },
 ];
+
 
 function Dashboard() {
   return (
