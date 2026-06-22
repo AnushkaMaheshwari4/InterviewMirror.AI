@@ -112,9 +112,6 @@ function InterviewPage() {
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [camMode, setCamMode] = useState<CamMode>("mini");
 
-  // Floating cam position (draggable)
-  const [camPos, setCamPos] = useState<{ x: number; y: number } | null>(null);
-  const dragRef = useRef<{ ox: number; oy: number; px: number; py: number } | null>(null);
 
   // Live metrics
   const startTsRef = useRef<number | null>(null);
