@@ -353,31 +353,6 @@ function InterviewPage() {
     setMicOn(t.enabled);
   };
 
-  // ---------- Drag handlers for floating mini cam ----------
-  const onDragStart = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
-    const target = e.currentTarget as HTMLDivElement;
-    const rect = target.getBoundingClientRect();
-    dragRef.current = {
-      ox: e.clientX - rect.left,
-      oy: e.clientY - rect.top,
-      px: rect.width,
-      py: rect.height,
-    };
-    target.setPointerCapture(e.pointerId);
-  };
-  const onDragMove = (e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    const { ox, oy, px, py } = dragRef.current;
-    const x = Math.max(8, Math.min(window.innerWidth - px - 8, e.clientX - ox));
-    const y = Math.max(8, Math.min(window.innerHeight - py - 8, e.clientY - oy));
-    setCamPos({ x, y });
-  };
-  const onDragEnd = (e: React.PointerEvent) => {
-    dragRef.current = null;
-    try { (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-  };
-
   // ---------- Setup screen ----------
   if (phase === "setup") {
     return (
