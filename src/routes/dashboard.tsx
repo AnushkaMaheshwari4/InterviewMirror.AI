@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { FileText, History, ListChecks, PlayCircle, Sparkles } from "lucide-react";
+import { FileText, History, ListChecks, PlayCircle, Rocket, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
